@@ -1,5 +1,5 @@
+import numpy as np
 from ISLP import load_data
-import ISLP
 import pandas as pd
 from ISLP.models import summarize
 import statsmodels.api as sm
@@ -7,6 +7,7 @@ from sklearn.metrics import confusion_matrix
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
+from typing import cast
 
 training_set = pd.read_csv('training_set.csv')
 testing_set = pd.read_csv('testing_set.csv')
@@ -23,7 +24,7 @@ def num_summary(x: pd.Series) -> str:
 def PartA():
     loyalty = training_set['LoyalCH']
     special = training_set['SpecialCH']
-    price_diff = training_set['ListPriceDiff']
+    price_diff = training_set['PriceDiff']
     
     print("LoyalCH Summary:")
     print(num_summary(loyalty))
@@ -31,16 +32,16 @@ def PartA():
     print("SpecialCH Summary:")
     print(num_summary(special))
 
-    print("ListPriceDiff Summary:")
+    print("PriceDiff Summary:")
     print(num_summary(price_diff))
 
 def PartB():
-    correlation_matrix = training_set[['LoyalCH', 'SpecialCH', 'ListPriceDiff']].corr()
+    correlation_matrix = training_set[['LoyalCH', 'SpecialCH', 'PriceDiff']].corr()
     print("Correlation Matrix:")
     print(correlation_matrix)
-    
+
 def PartC():
-    X_train = training_set[['LoyalCH', 'SpecialCH', 'ListPriceDiff']]
+    X_train = training_set[['LoyalCH', 'SpecialCH', 'PriceDiff']]
     X_train = sm.add_constant(X_train)
     y_train = (training_set['Purchase'] == 'CH').astype(int)
 
@@ -50,14 +51,11 @@ def PartC():
     print(summary)
     
 def PartD():
-    X_train = training_set[['LoyalCH', 'SpecialCH', 'ListPriceDiff']]
+    X_train = training_set[['LoyalCH', 'SpecialCH', 'PriceDiff']]
     X_train = sm.add_constant(X_train)
     y_train = (training_set['Purchase'] == 'CH').astype(int)
 
     model = sm.GLM(y_train, X_train, family=sm.families.Binomial()).fit()
-    summary = model.summary()
-    print("GLM Summary:")
-    print(summary)
     
     # predict probabilities on Train and classify with threshold 0.5
     probs = model.predict(X_train)
@@ -78,18 +76,15 @@ def PartD():
     print(f"Percent false negatives (of all observations): {percent_fn:.2f}%")
 
 def PartE():
-    X_train = training_set[['LoyalCH', 'ListPriceDiff']]
+    X_train = training_set[['LoyalCH', 'PriceDiff']]
     X_train = sm.add_constant(X_train)
     y_train = (training_set['Purchase'] == 'CH').astype(int)
-    
-    x_testing = testing_set[['LoyalCH', 'ListPriceDiff']]
+
+    x_testing = testing_set[['LoyalCH', 'PriceDiff']]
     x_testing = sm.add_constant(x_testing)
     y_test = (testing_set['Purchase'] == 'CH').astype(int)
 
     model = sm.GLM(y_train, X_train, family=sm.families.Binomial()).fit()
-    summary = model.summary()
-    print("GLM Summary:")
-    print(summary)
     
     # predict probabilities on Train and classify with threshold 0.5
     probs = model.predict(x_testing)
@@ -110,10 +105,10 @@ def PartE():
     print(f"Percent false negatives (of all observations): {percent_fn:.2f}%")
     
 def PartF():
-    X_train = training_set[['LoyalCH', 'ListPriceDiff']]
+    X_train = training_set[['LoyalCH', 'PriceDiff']]
     y_train = (training_set['Purchase'] == 'CH').astype(int)
 
-    X_test = testing_set[['LoyalCH', 'ListPriceDiff']]
+    X_test = testing_set[['LoyalCH', 'PriceDiff']]
     y_test = (testing_set['Purchase'] == 'CH').astype(int)
 
     model = GaussianNB()
@@ -134,10 +129,10 @@ def PartF():
     print(f"False Negative: {percent_fn:.2f}%")
 
 def PartG():
-    X_train = training_set[['LoyalCH', 'ListPriceDiff']].copy()
+    X_train = training_set[['LoyalCH', 'PriceDiff']].copy()
     y_train = (training_set['Purchase'] == 'CH').astype(int)
 
-    X_test = testing_set[['LoyalCH', 'ListPriceDiff']].copy()
+    X_test = testing_set[['LoyalCH', 'PriceDiff']].copy()
     y_test = (testing_set['Purchase'] == 'CH').astype(int)
 
     scaler = StandardScaler().fit(X_train)
@@ -209,9 +204,9 @@ def PartH():
     from sklearn.metrics import roc_curve, roc_auc_score
     
     # Features for all models
-    X_train = training_set[['LoyalCH', 'ListPriceDiff']]
+    X_train = training_set[['LoyalCH', 'PriceDiff']]
     y_train = (training_set['Purchase'] == 'CH').astype(int)
-    X_test = testing_set[['LoyalCH', 'ListPriceDiff']]
+    X_test = testing_set[['LoyalCH', 'PriceDiff']]
     y_test = (testing_set['Purchase'] == 'CH').astype(int)
     
     # Scaled features for KNN
