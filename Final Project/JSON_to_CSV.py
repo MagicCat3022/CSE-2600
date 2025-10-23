@@ -13,7 +13,9 @@ def extract_target_rows(obj: Dict[str, Any], fields: Optional[List[str]] = None)
     target_role_found = obj.get("target_role_found", -1)
     matches_examined = obj.get("matches_examined", -1)
     role_density = obj.get("role_density", -1.0)
-    ranked_snapshot = obj.get("ranked_snapshot", [{}])[0]
+    ranked_snapshot = obj.get("ranked_snapshot", [{}])
+    if len(ranked_snapshot) > 0:
+        ranked_snapshot = ranked_snapshot[0]
     leagueId = ranked_snapshot.get("leagueId", -1)
     tier = ranked_snapshot.get("tier", "-1")
     rank = ranked_snapshot.get("rank", -1)
@@ -56,6 +58,8 @@ def extract_target_rows(obj: Dict[str, Any], fields: Optional[List[str]] = None)
             "leagueId": leagueId,
             "tier": tier,
             "rank": rank,
+            "tier_int": None,
+            "rank_int": None,
             "leaguePoints": leaguePoints,
             "wins": wins,
             "losses": losses
@@ -113,10 +117,38 @@ def get_all_matches(obj: Dict[str, Any]):
                     wf.write(f"  {challenge_key}: {challenge_value}\n")
             else:
                 wf.write(f"{key}: {value}\n")
+                
+                
+def ndjson_to_csv(ndjson_path: Path, out_path: Path, fields: Optional[List[str]] = None) -> Path:
+    rows: List[Dict[str, Any]] = []
+    with ndjson_path.open('r', encoding='utf-8') as f:
+        for line in f:
+            obj = json.loads(line)
+            match_rows = extract_target_rows(obj, fields=fields)
+            rows.extend(match_rows)
+    df = pd.DataFrame(rows)
+    
+    # Correct variable names for clarity
+    tier_mapping = {"IRON": 1, "BRONZE": 2, "SILVER": 3, "GOLD": 4, "PLATINUM": 5, "DIAMOND": 6, "MASTER": 7, "GRANDMASTER": 8, "CHALLENGER": 9}
+    rank_mapping = {"IV": 1, "III": 2, "II": 3, "I": 4}
+    
+    # Convert to string first to handle mixed types
+    df['tier_str'] = df['tier'].astype(str).str.upper()
+    df['rank_str'] = df['rank'].astype(str).str.upper()
+    
+    # Apply correct mappings to correct columns
+    df['tier_int'] = df['tier_str'].map(tier_mapping).fillna(-1).astype(int)
+    df['rank_int'] = df['rank_str'].map(rank_mapping).fillna(-1).astype(int)
+    
+    # Drop temporary columns
+    df = df.drop(columns=['tier_str', 'rank_str'])
+    
+    df = df.sort_values(["tier_int", "rank_int", "leaguePoints", "puuid"], ascending=[False, False, False, False])
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    return out
 
 if __name__ == "__main__":
-    csv_path = matches_to_csv(
-        json.loads(Path("single_line.json").read_text(encoding='utf-8')),
-        out_path="output_targets.csv"
-    )
+    csv_path = ndjson_to_csv(Path("Data/JSON/oct_22_home_crawl.ndjson"), Path("Data/CSV/oct_22_home_crawl.csv"))
     print(f"CSV saved to: {csv_path}")

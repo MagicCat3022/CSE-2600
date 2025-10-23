@@ -230,6 +230,7 @@ def crawl_ranked_role_graph(
     target_role_matches_needed: int = 10,
     max_history_to_scan: int = 20,
     max_players_to_process: int = 300,
+    target_written_amount: int = 100,
     out_jsonl_path: Optional[str] = None,
     collect_full_matches: bool = True,
 ) -> None:
@@ -237,7 +238,19 @@ def crawl_ranked_role_graph(
     BFS crawl starting from a single Riot ID, expanding across lobbies.
 
     Writes NDJSON records as it goes (append mode) to avoid losing work
-    if interrupted.
+    if interrupted. Only writes records for players who have at least
+    target_role_matches_needed games in the target role.
+    
+    Parameters:
+        seed_summoner_name: Starting player's summoner name
+        seed_tagline: Starting player's tagline
+        target_role: The role to filter for (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY)
+        target_role_matches_needed: Min number of matches in target role needed to be written
+        max_history_to_scan: Max number of matches to scan per player
+        max_players_to_process: Hard limit on total players to process
+        target_written_amount: Target number of valid players to write (stops after reaching this)
+        out_jsonl_path: Path to write the NDJSON output
+        collect_full_matches: Whether to include full match data or just IDs
     """
     if out_jsonl_path is None:
         out_jsonl_path = os.path.join(cast(str, JSON_folder), "ranked_role_crawl.ndjson")
@@ -248,12 +261,13 @@ def crawl_ranked_role_graph(
     q: deque[str] = deque([seed_puuid])
 
     processed_count = 0
+    written_count = 0
 
     os.makedirs(os.path.dirname(out_jsonl_path), exist_ok=True)
 
     # Open in append mode so resuming doesn't overwrite prior data
     with open(out_jsonl_path, "a", encoding="utf-8") as out_f:
-        while q and processed_count < max_players_to_process:
+        while q and processed_count < max_players_to_process and written_count < target_written_amount:
             puuid = q.popleft()
             if puuid in visited:
                 continue
@@ -276,10 +290,12 @@ def crawl_ranked_role_graph(
                 }
                 neighbors = set()
 
-            # Append result immediately (NDJSON)
-            out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            out_f.flush()
-
+            # Only write to NDJSON if player has enough matches or there was an error
+            if "error" in rec or int(rec.get("target_role_found", 0)) >= target_role_matches_needed:
+                out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                out_f.flush()
+                written_count += 1
+            
             processed_count += 1
 
             # Add neighbors (propagation). Maintain a modest cap so we don't explode too quickly.
@@ -287,23 +303,27 @@ def crawl_ranked_role_graph(
                 if n and (n not in visited):
                     q.append(n)
 
-    print(f"[crawl] Processed {processed_count} player(s). Output -> {out_jsonl_path}")
+    print(f"[crawl] Processed {processed_count} player(s), wrote {written_count} to output. Target was {target_written_amount} written. Output -> {out_jsonl_path}")
 
 # -------- Example: run a small crawl --------
 
 if __name__ == "__main__":
     # Example seed (override via envs TEST_SUMMONER_NAME / TEST_TAGLINE)
-    seed_name = os.getenv('TEST_SUMMONER_NAME', 'MagicCat3022')
-    seed_tag = os.getenv('TEST_TAGLINE', '3022')
+    seed_name = "Kitsune"
+    seed_tag = "Yippe"
 
     # Tunable knobs (safe defaults shown)
-    # crawl_ranked_role_graph(
-    #     seed_summoner_name=seed_name,
-    #     seed_tagline=seed_tag,
-    #     target_role=os.getenv("TARGET_ROLE", "MIDDLE"),
-    #     target_role_matches_needed=int(os.getenv("ROLE_MATCHES_NEEDED", "10")),
-    #     max_history_to_scan=int(os.getenv("MAX_HISTORY_SCAN", "20")),
-    #     max_players_to_process=int(os.getenv("MAX_PLAYERS", "400")),
-    #     out_jsonl_path=os.path.join(JSON_folder, "oct_21_night_crawl.ndjson"),
-    #     collect_full_matches=bool(int(os.getenv("COLLECT_FULL_MATCHES", "1"))),
-    # )
+    crawl_ranked_role_graph(
+        seed_summoner_name=seed_name,
+        seed_tagline=seed_tag,
+        target_role="MIDDLE",
+        target_role_matches_needed=10,
+        max_history_to_scan=20,
+        max_players_to_process=2000,
+        target_written_amount=200,
+        out_jsonl_path=os.path.join(JSON_folder, "oct_22_home_night_crawl.ndjson"),
+        collect_full_matches=True,
+    )
+    
+    with open("done.txt", 'w', encoding='utf-8') as f:
+        f.write("Crawl completed successfully.\n")
