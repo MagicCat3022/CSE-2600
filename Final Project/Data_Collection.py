@@ -4,6 +4,10 @@ from typing import List, cast, Optional
 import time
 from collections import deque
 from typing import Dict, Set, Tuple
+import errno
+import socket
+
+import requests
 
 # Optional: load from a local .env file for development
 try:
@@ -33,8 +37,8 @@ os.makedirs(JSON_folder, exist_ok=True)
 os.makedirs(CSV_Folder, exist_ok=True)
 
 
-def _get_env_api_key() -> str:
-    key = os.getenv('RIOT_API_KEY')
+def _get_env_api_key(thread: int) -> str:
+    key = os.getenv(f'RIOT_API_KEY{thread}')
     if not key:
         raise RuntimeError(
             "RIOT_API_KEY is not set. Set it in your environment or create a .env file with RIOT_API_KEY=your_key"
@@ -42,8 +46,8 @@ def _get_env_api_key() -> str:
     return key
 
 
-def get_clients():
-    api_key = _get_env_api_key()
+def get_clients(thread: int):
+    api_key = _get_env_api_key(thread)
     Riot_region = os.getenv('RIOT_REGION', 'americas')
     Lol_region = os.getenv('LOL_REGION', 'na1')
 
@@ -51,7 +55,7 @@ def get_clients():
     Riot = RiotWatcher(api_key)
     return Lol, Riot, Lol_region, Riot_region
 
-def get_summoner_puuid(summoner_name: str, tagline: str) -> str:
+def get_summoner_puuid(summoner_name: str, tagline: str, thread: int) -> str:
     """Fetch the puuid for a given summoner (by Riot ID).
 
     Args:
@@ -61,7 +65,7 @@ def get_summoner_puuid(summoner_name: str, tagline: str) -> str:
     Returns:
         The puuid of the summoner.
     """
-    Lol, Riot, Lol_region, Riot_region = get_clients()
+    Lol, Riot, Lol_region, Riot_region = get_clients(thread)
 
     response = Riot.account.by_riot_id(Riot_region, summoner_name, tagline)
     account = cast(dict, response)
@@ -80,23 +84,72 @@ def _sleep_backoff(attempt: int) -> None:
     # naive exponential backoff with cap ~ 20s
     time.sleep(min(0.5 * (2 ** attempt), 20.0))
 
+_TRANSIENT_ERRNOS = {
+    code
+    for code in (
+        getattr(errno, "ECONNRESET", None),
+        getattr(errno, "ECONNREFUSED", None),
+        getattr(errno, "ECONNABORTED", None),
+        getattr(errno, "EPIPE", None),
+        getattr(errno, "ETIMEDOUT", None),
+        getattr(errno, "EHOSTUNREACH", None),
+        getattr(errno, "ENETUNREACH", None),
+        getattr(errno, "EAI_AGAIN", None),
+        getattr(errno, "EAI_FAIL", None),
+        getattr(errno, "EAI_NONAME", None),
+        getattr(errno, "WSAECONNRESET", None),
+        getattr(errno, "WSAETIMEDOUT", None),
+        getattr(errno, "WSAECONNREFUSED", None),
+        getattr(errno, "WSAEHOSTUNREACH", None),
+        getattr(errno, "WSATRY_AGAIN", None),
+    )
+    if isinstance(code, int)
+}
+_TRANSIENT_ERRNOS.add(11001)
+
+
+def _is_transient_network_error(exc: Exception) -> bool:
+    stack = [exc]
+    while stack:
+        cur = stack.pop()
+        if cur is None:
+            continue
+        if isinstance(cur, requests.exceptions.RequestException):
+            return True
+        if isinstance(cur, socket.gaierror) and (cur.errno in _TRANSIENT_ERRNOS or cur.errno is None):
+            return True
+        if isinstance(cur, OSError) and cur.errno in _TRANSIENT_ERRNOS:
+            return True
+        stack.append(getattr(cur, "__cause__", None))
+        stack.append(getattr(cur, "__context__", None))
+    return False
+
+
+def _should_retry(exc: Exception, attempt: int, max_attempts: int) -> bool:
+    if attempt >= max_attempts - 1:
+        return False
+    msg = str(exc)
+    if any(code in msg for code in ["429", "502", "503", "504"]):
+        return True
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) in {408, 429, 500, 502, 503, 504}:
+        return True
+    return _is_transient_network_error(exc)
+
 def _with_retries(fn, *args, max_attempts: int = 5, **kwargs):
     attempt = 0
     while True:
         try:
             return fn(*args, **kwargs)
         except Exception as e:
-            msg = str(e)
-            # Riot's 429/5xx handling: riotwatcher retries some, but be safe
-            if any(code in msg for code in ["429", "502", "503", "504"]) and attempt < max_attempts - 1:
-                attempt += 1
-                _sleep_backoff(attempt)
-                continue
-            raise
+            if not _should_retry(e, attempt, max_attempts):
+                raise
+            attempt += 1
+            _sleep_backoff(attempt)
 
-def _riot_id_from_puuid(puuid: str) -> Tuple[str, str]:
+def _riot_id_from_puuid(puuid: str, thread: int) -> Tuple[str, str]:
     """Best-effort reverse lookup of Riot ID -> (gameName, tagLine)."""
-    _, Riot, _, Riot_region = get_clients()
+    _, Riot, _, Riot_region = get_clients(thread)
     try:
         acct = _with_retries(Riot.account.by_puuid, Riot_region, puuid) or {}
         acct = cast(dict, acct)
@@ -120,10 +173,10 @@ def _has_target_role(match: dict, puuid: str, target_role: str) -> bool:
     # API uses 'teamPosition' for role; normalize to canonical uppercase
     return (p.get("teamPosition") or "").upper() == target_role
 
-def _iter_match_ids_for_puuid(puuid: str, max_to_scan: int, page_size: int = 100):
+def _iter_match_ids_for_puuid(puuid: str, max_to_scan: int, page_size: int, thread: int):
     """Generator yielding match IDs up to max_to_scan, paginated."""
     page_size = min(page_size, 100)  # Riot max page size is 100
-    Lol, _, Lol_region, _ = get_clients()
+    Lol, _, Lol_region, _ = get_clients(thread)
     fetched = 0
     start = 0
     while fetched < max_to_scan:
@@ -140,16 +193,16 @@ def _iter_match_ids_for_puuid(puuid: str, max_to_scan: int, page_size: int = 100
         if got == 0:
             break
 
-def _fetch_match(match_id: str) -> dict:
-    Lol, _, Lol_region, _ = get_clients()
+def _fetch_match(match_id: str, thread: int) -> dict:
+    Lol, _, Lol_region, _ = get_clients(thread)
     return cast(dict, _with_retries(Lol.match.by_id, Lol_region, match_id))
 
 def _collect_lobby_puuids(match: dict) -> Set[str]:
     info = match.get("info", {}) or {}
     return {p.get("puuid") for p in info.get("participants", []) if p.get("puuid")}
 
-def _fetch_ranked_snapshot(puuid: str) -> dict:
-    Lol, _, Lol_region, _ = get_clients()
+def _fetch_ranked_snapshot(puuid: str, thread: int) -> dict:
+    Lol, _, Lol_region, _ = get_clients(thread)
     try:
         return cast(dict, _with_retries(Lol.league.by_puuid, Lol_region, puuid) or {})
     except Exception:
@@ -163,6 +216,7 @@ def collect_player_role_sample(
     target_role_matches_needed: int = 10,
     max_history_to_scan: int = 20,
     collect_full_matches: bool = True,
+    thread: int = -1,
 ) -> Tuple[Dict, Set[str]]:
     """
     Returns (player_record, puuids_from_their_ranked_solo_matches).
@@ -188,8 +242,8 @@ def collect_player_role_sample(
     role_matches = []
     lobby_accumulator: Set[str] = set()
 
-    for mid in _iter_match_ids_for_puuid(puuid, max_to_scan=max_history_to_scan):
-        match = _fetch_match(mid)
+    for mid in _iter_match_ids_for_puuid(puuid, max_history_to_scan, 100, thread):
+        match = _fetch_match(mid, thread)
         # We only care about ranked solo/duo (queue 420)
         if not _is_ranked_solo(match):
             continue
@@ -205,8 +259,8 @@ def collect_player_role_sample(
             if found >= target_role_matches_needed:
                 break
 
-    gameName, tagLine = _riot_id_from_puuid(puuid)
-    ranked_snapshot = _fetch_ranked_snapshot(puuid)
+    gameName, tagLine = _riot_id_from_puuid(puuid, thread)
+    ranked_snapshot = _fetch_ranked_snapshot(puuid, thread)
 
     record = {
         "puuid": puuid,
@@ -233,6 +287,7 @@ def crawl_ranked_role_graph(
     target_written_amount: int = 100,
     out_jsonl_path: Optional[str] = None,
     collect_full_matches: bool = True,
+    thread: int = -1,
 ) -> None:
     """
     BFS crawl starting from a single Riot ID, expanding across lobbies.
@@ -255,7 +310,7 @@ def crawl_ranked_role_graph(
     if out_jsonl_path is None:
         out_jsonl_path = os.path.join(cast(str, JSON_folder), "ranked_role_crawl.ndjson")
 
-    seed_puuid = get_summoner_puuid(seed_summoner_name, seed_tagline)
+    seed_puuid = get_summoner_puuid(seed_summoner_name, seed_tagline, thread)
 
     visited: Set[str] = set()
     q: deque[str] = deque([seed_puuid])
@@ -266,12 +321,11 @@ def crawl_ranked_role_graph(
     os.makedirs(os.path.dirname(out_jsonl_path), exist_ok=True)
 
     # Open in append mode so resuming doesn't overwrite prior data
-    with open(out_jsonl_path, "a", encoding="utf-8") as out_f:
+    with open(out_jsonl_path, "a", encoding="utf-8") as out_f, open(error_jsonl_path, "a", encoding="utf-8") as err_f:
         while q and processed_count < max_players_to_process and written_count < target_written_amount:
             puuid = q.popleft()
             if puuid in visited:
                 continue
-            visited.add(puuid)
 
             try:
                 rec, neighbors = collect_player_role_sample(
@@ -280,50 +334,73 @@ def crawl_ranked_role_graph(
                     target_role_matches_needed=target_role_matches_needed,
                     max_history_to_scan=max_history_to_scan,
                     collect_full_matches=collect_full_matches,
+                    thread=thread,
                 )
+                retry_counts.pop(puuid, None)
             except Exception as e:
-                # Record the error but keep crawling
+                if _is_transient_network_error(e) and retry_counts.get(puuid, 0) < max_transient_retries:
+                    retry_counts[puuid] = retry_counts.get(puuid, 0) + 1
+                    _sleep_backoff(retry_counts[puuid])
+                    q.append(puuid)
+                    continue
+                attempts = retry_counts.get(puuid, 0) + 1
                 rec = {
                     "puuid": puuid,
                     "error": str(e),
+                    "error_type": type(e).__name__,
+                    "attempts": attempts,
                     "target_role": target_role.upper(),
                 }
+                retry_counts.pop(puuid, None)
                 neighbors = set()
 
-            # Only write to NDJSON if player has enough matches or there was an error
-            if "error" in rec or int(rec.get("target_role_found", 0)) >= target_role_matches_needed:
+            visited.add(puuid)
+
+            target_role_found = int(rec.get("target_role_found", 0))
+            if "error" in rec:
+                err_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                err_f.flush()
+            elif target_role_found >= target_role_matches_needed:
                 out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 out_f.flush()
                 written_count += 1
-            
+
             processed_count += 1
 
-            # Add neighbors (propagation). Maintain a modest cap so we don't explode too quickly.
             for n in neighbors:
                 if n and (n not in visited):
                     q.append(n)
 
-    print(f"[crawl] Processed {processed_count} player(s), wrote {written_count} to output. Target was {target_written_amount} written. Output -> {out_jsonl_path}")
-
+    print(
+        f"[crawl{thread}] Processed {processed_count} player(s), wrote {written_count} to output. "
+        f"Target was {target_written_amount} written. Errors logged -> {error_jsonl_path}"
+    )
 # -------- Example: run a small crawl --------
-
+from concurrent.futures import ThreadPoolExecutor
 if __name__ == "__main__":
     # Example seed (override via envs TEST_SUMMONER_NAME / TEST_TAGLINE)
-    seed_name = "Kitsune"
-    seed_tag = "Yippe"
-
-    # Tunable knobs (safe defaults shown)
-    crawl_ranked_role_graph(
-        seed_summoner_name=seed_name,
-        seed_tagline=seed_tag,
-        target_role="MIDDLE",
-        target_role_matches_needed=10,
-        max_history_to_scan=20,
-        max_players_to_process=2000,
-        target_written_amount=200,
-        out_jsonl_path=os.path.join(JSON_folder, "oct_22_home_night_crawl.ndjson"),
-        collect_full_matches=True,
-    )
+    seed_name1 = "Kitsune"
+    seed_tag1 = "Yippe"
     
-    with open("done.txt", 'w', encoding='utf-8') as f:
-        f.write("Crawl completed successfully.\n")
+    seed_name2 = "raccoonlover"
+    seed_tag2 = "balls"
+
+    seed_name3 = "Isukiri"
+    seed_tag3 = "9513"
+    
+    list_of_seeds = [(seed_name1, seed_tag1), (seed_name2, seed_tag2), (seed_name3, seed_tag3)]
+    i=4
+    crawl_ranked_role_graph(
+            seed_summoner_name=seed_name2,
+            seed_tagline=seed_tag2,
+            target_role="MIDDLE",
+            target_role_matches_needed=10,
+            max_history_to_scan=20,
+            max_players_to_process=2000,
+            target_written_amount=200,
+            out_jsonl_path=os.path.join(JSON_folder, f"oct_23_home_night_crawl_{i}.ndjson"),
+            collect_full_matches=True,
+            thread=i,
+        )
+    with open('crawl_complete_DEV.txt', 'w') as f:
+        f.write('Crawls complete.\n')

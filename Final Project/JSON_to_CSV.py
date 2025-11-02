@@ -81,6 +81,35 @@ def extract_target_rows(obj: Dict[str, Any], fields: Optional[List[str]] = None)
             row = out_row
         
         rows.append(row)
+    
+    matches = obj.get("target_role_matches", [])
+    if not matches:
+        base_row = {
+            "puuid": target_puuid,
+            "riotId": riot_id,
+            "matchId": None,
+            "gameCreation_ms": None,
+            "gameDuration_s": None,
+            "target_role_found": target_role_found,
+            "matches_examined": matches_examined,
+            "role_density": role_density,
+            "leagueId": leagueId,
+            "tier": tier,
+            "rank": rank,
+            "tier_int": None,
+            "rank_int": None,
+            "leaguePoints": leaguePoints,
+            "wins": wins,
+            "losses": losses,
+        }
+        for key, value in targets.items():
+            if key == "challenges":
+                for challenge_key in value.keys():
+                    base_row[f"challenge_{challenge_key}"] = None
+            else:
+                base_row[key] = None
+        rows.append(base_row)
+        
     return rows
 
 def matches_to_csv(obj: Dict[str, Any], out_path: str, fields: Optional[List[str]] = None) -> Path:
@@ -106,9 +135,8 @@ def get_all_matches(obj: Dict[str, Any]):
         for part in info.get("participants", []):
             if part.get("puuid") == target_puuid:
                 p = part
-                cast(Dict[str, Any], p)
                 break
-            
+    p = cast(Dict[str, Any], p)
     with open('output.txt', 'w', encoding='utf-8') as wf:
         for key, value in p.items():
             if key == 'challenges':
@@ -129,7 +157,7 @@ def ndjson_to_csv(ndjson_path: Path, out_path: Path, fields: Optional[List[str]]
     df = pd.DataFrame(rows)
     
     # Correct variable names for clarity
-    tier_mapping = {"IRON": 1, "BRONZE": 2, "SILVER": 3, "GOLD": 4, "PLATINUM": 5, "DIAMOND": 6, "MASTER": 7, "GRANDMASTER": 8, "CHALLENGER": 9}
+    tier_mapping = {"IRON": 1, "BRONZE": 2, "SILVER": 3, "GOLD": 4, "PLATINUM": 5, "EMERALD": 6, "DIAMOND": 7, "MASTER": 8, "GRANDMASTER": 9, "CHALLENGER": 10}
     rank_mapping = {"IV": 1, "III": 2, "II": 3, "I": 4}
     
     # Convert to string first to handle mixed types
@@ -150,5 +178,11 @@ def ndjson_to_csv(ndjson_path: Path, out_path: Path, fields: Optional[List[str]]
     return out
 
 if __name__ == "__main__":
-    csv_path = ndjson_to_csv(Path("Data/JSON/oct_22_home_crawl.ndjson"), Path("Data/CSV/oct_22_home_crawl.csv"))
-    print(f"CSV saved to: {csv_path}")
+    JSON_Folder = r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Data\JSON"
+    Output_Folder = r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Data\CSV"
+    files = list(Path(JSON_Folder).glob("*.ndjson"))
+
+    for file in files:
+        print(f"Processing file: {file}")
+        csv_path = ndjson_to_csv(file, Path(f"{Output_Folder}/{file.with_suffix('.csv').name}"))
+        print(f"CSV saved to: {csv_path}")
