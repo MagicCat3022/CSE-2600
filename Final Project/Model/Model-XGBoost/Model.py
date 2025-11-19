@@ -19,17 +19,17 @@ EXCLUDED_FEATURES = {"tier", "rank", "tier_int", "rank_int", "leaguepoints", "lp
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
-N_SPLITS = 3
+N_SPLITS = 5
 TOP_K = 10
 
 PARAM_GRID = {
-    "regressor__n_estimators": [400, 800, 1200, 2000],
-    "regressor__max_depth": [4, 6, 8, 10],
-    "regressor__learning_rate": [0.025, 0.05, 0.1, 0.2],
-    "regressor__subsample": [0.8, 1.0],
-    "regressor__colsample_bytree": [0.7, 0.9],
-    "regressor__gamma": [0, 1, 5],
-    "regressor__reg_lambda": [1.0, 1.5],
+    "regressor__n_estimators": [4000, 5500],
+    "regressor__max_depth": [6, 8],
+    "regressor__learning_rate": [0.1],
+    "regressor__subsample": [1.0],
+    "regressor__colsample_bytree": [0.7],
+    "regressor__gamma": [1],
+    "regressor__reg_lambda": [1.5],
 }
 CLEAN_PARAM_NAMES = [key.replace("regressor__", "") for key in PARAM_GRID]
 
@@ -99,12 +99,33 @@ def rmse_score(y_true, y_pred):
     return np.sqrt(mean_squared_error(y_true, y_pred))
 
 
+def append_partial_result(row: dict, filepath: Path, header_written: bool) -> bool:
+    ordered_row = {}
+    for col in ("mean_cv_rmse", "std_cv_rmse", "mean_cv_r2"):
+        if col in row:
+            ordered_row[col] = row[col]
+    for col in CLEAN_PARAM_NAMES:
+        if col in row:
+            ordered_row[col] = row[col]
+    pd.DataFrame([ordered_row]).to_csv(
+        filepath,
+        mode="a",
+        header=not header_written,
+        index=False,
+    )
+    return True
+
+
 def run_hyperparameter_search(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     numeric_features: list[str],
     categorical_features: list[str],
+    results_path: Path,
 ) -> tuple[pd.DataFrame, dict]:
+    results_path.unlink(missing_ok=True)
+    header_written = False
+
     param_grid = list(ParameterGrid(PARAM_GRID))
     total_configs = len(param_grid)
     kfold = KFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
@@ -134,6 +155,8 @@ def run_hyperparameter_search(
         clean_params = {k.replace("regressor__", ""): v for k, v in params.items()}
         row.update(clean_params)
         results.append(row)
+
+        header_written = append_partial_result(row, results_path, header_written)
 
         print(
             f"[{idx:02d}/{total_configs}] RMSE: {rmse_scores.mean():.3f}, "
@@ -187,7 +210,7 @@ def main() -> None:
     )
 
     results_df, best_params = run_hyperparameter_search(
-        X_train, y_train, numeric_features, categorical_features
+        X_train, y_train, numeric_features, categorical_features, RESULTS_PATH
     )
     display_top_models(results_df)
     save_results(results_df)
