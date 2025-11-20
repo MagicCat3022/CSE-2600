@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import joblib
+import shutil
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
@@ -20,13 +22,13 @@ from sklearn.model_selection import (
     train_test_split,
 )
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder, OrdinalEncoder
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "Updated_Data.csv"
+DATA_PATH = BASE_DIR / "Data" / "Updated_Data.csv"
 RESULTS_PATH = BASE_DIR / "model_search_results.csv"
 
 TARGET_NAME = "tier_rank_combined"
@@ -47,16 +49,19 @@ RANDOM_STATE = 42
 N_JOBS = -1  # for sklearn CV where applicable
 
 XGB_PARAM_GRID = {
-    "model__n_estimators": [2000, 5000],
-    "model__max_depth": [4, 6],
-    "model__learning_rate": [0.05, 0.1],
-    "model__subsample": [0.8, 1.0],
-    "model__colsample_bytree": [0.7],
-    "model__reg_lambda": [1.0, 1.5],
+    "model__n_estimators": [500],
+    "model__max_depth": [4],
+    "model__learning_rate": [0.1],
+    "model__subsample": [0.8],
+    "model__colsample_bytree": [0.5],
+    "model__reg_lambda": [1.5],
+    "model__tree_method": ["hist"],
+    "model__min_child_weight": [1, 5],
+    "model__gamma": [1, 0],
 }
 
 RF_PARAM_GRID = {
-    "model__n_estimators": [3000, 5000],
+    "model__n_estimators": [10, 5000],
     "model__max_depth": [30, None],
     "model__max_features": ["sqrt", 0.6],
     "model__min_samples_split": [2, 5],
@@ -65,6 +70,7 @@ RF_PARAM_GRID = {
 
 BASE_RESULT_COLUMNS = [
     "algorithm",
+    "model_filename",
     "mean_accuracy",
     "std_accuracy",
     "mean_misclassification",
@@ -196,6 +202,10 @@ def run_search(
         n_splits=CV_SPLITS, shuffle=True, random_state=RANDOM_STATE
     )
 
+    # Create directory for all models of this algorithm
+    models_dir = results_path.parent / "all_models" / algorithm
+    models_dir.mkdir(parents=True, exist_ok=True)
+
     results = []
     grid = list(ParameterGrid(param_grid))
     total = len(grid)
@@ -214,6 +224,11 @@ def run_search(
             error_score="raise",
         )
 
+        # Fit on full training set and save
+        pipeline.fit(X_train, y_train)
+        model_filename = f"{algorithm}_{idx}.joblib"
+        joblib.dump(pipeline, models_dir / model_filename)
+
         accuracy_scores = cv_scores["test_accuracy"]
         misclassification_scores = 1 - accuracy_scores
         f1_scores = cv_scores["test_f1_macro"]
@@ -221,6 +236,7 @@ def run_search(
 
         row = {
             "algorithm": algorithm,
+            "model_filename": model_filename,
             "mean_accuracy": accuracy_scores.mean(),
             "std_accuracy": accuracy_scores.std(),
             "mean_misclassification": misclassification_scores.mean(),
@@ -236,8 +252,10 @@ def run_search(
 
         print(
             f"[{algorithm} {idx:02d}/{total}] "
-            f"acc={row['mean_accuracy']:.4f}, f1={row['mean_macro_f1']:.4f}, "
+            f"acc={row['mean_accuracy']:.4f}, mean misclassification={row['mean_misclassification']:.4f}, "
+            f"macro_f1={row['mean_macro_f1']:.4f}, "
             f"logloss={row['mean_log_loss']:.4f}"
+            f"\n{params}"
         )
 
     results_df = pd.DataFrame(results).sort_values(
@@ -256,7 +274,7 @@ def evaluate_holdout(
     y_test: np.ndarray,
     preprocessor: ColumnTransformer,
     num_classes: int,
-) -> Dict[str, float]:
+) -> Tuple[Dict[str, float], Pipeline]:
     pipeline = make_pipeline(algorithm, num_classes, preprocessor)
     pipeline.set_params(**params)
     pipeline.fit(X_train, y_train)
@@ -275,13 +293,92 @@ def evaluate_holdout(
         "holdout_macro_f1": macro_f1,
         "holdout_log_loss": loss,
     }
-    return metrics
+    return metrics, pipeline
 
 
 def persist_results(results: List[pd.DataFrame], filepath: Path) -> None:
     merged = pd.concat(results, ignore_index=True)
     merged.to_csv(filepath, index=False)
     print(f"\nSaved {len(merged)} rows to {filepath}")
+
+
+def select_top_features(
+    X: pd.DataFrame, y: np.ndarray, n_features: int
+) -> pd.DataFrame:
+    """
+    Selects the top N features based on Random Forest importance.
+    Uses OrdinalEncoder for categoricals to keep 1-to-1 mapping between
+    input columns and importance scores.
+    """
+    print(f"\n--- Starting Feature Selection (Target: Top {n_features}) ---")
+    numeric_cols, cat_cols = split_features(X)
+    
+    # If we have fewer features than requested, return original
+    if len(X.columns) <= n_features:
+        print(f"Dataset has {len(X.columns)} features, which is <= {n_features}. No reduction needed.")
+        return X
+
+    # Build a temporary pipeline for selection
+    # We use OrdinalEncoder so categorical cols remain single columns
+    transformers = []
+    if numeric_cols:
+        transformers.append(("num", SimpleImputer(strategy="median"), numeric_cols))
+    if cat_cols:
+        transformers.append(
+            (
+                "cat",
+                Pipeline(
+                    steps=[
+                        ("imputer", SimpleImputer(strategy="most_frequent")),
+                        (
+                            "encoder",
+                            OrdinalEncoder(
+                                handle_unknown="use_encoded_value", unknown_value=-1
+                            ),
+                        ),
+                    ]
+                ),
+                cat_cols,
+            )
+        )
+
+    preprocessor = ColumnTransformer(transformers)
+    
+    # Lightweight RF for selection
+    clf = RandomForestClassifier(
+        n_estimators=1000,
+        max_depth=10,
+        n_jobs=N_JOBS,
+        random_state=RANDOM_STATE
+    )
+    
+    pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", clf)])
+    
+    print("Training scout model for feature importance...")
+    pipeline.fit(X, y)
+    
+    # Extract importances
+    model = pipeline.named_steps["model"]
+    importances = model.feature_importances_
+    
+    # Map importances back to column names
+    # ColumnTransformer processes transformers in order: numeric then categorical
+    feature_names = numeric_cols + cat_cols
+    
+    if len(importances) != len(feature_names):
+        print("Warning: Feature count mismatch during selection. Skipping reduction.")
+        return X
+
+    # Create a DataFrame of features and their importance
+    feat_imp = pd.DataFrame({"feature": feature_names, "importance": importances})
+    feat_imp = feat_imp.sort_values(by="importance", ascending=False)
+    
+    top_features = feat_imp.head(n_features)["feature"].tolist()
+    
+    print(f"Top 10 features: {top_features[:10]}")
+    print(f"Reduced feature space from {len(X.columns)} to {len(top_features)}.")
+    
+    return X[top_features]
 
 
 def main() -> None:
@@ -298,13 +395,28 @@ def main() -> None:
         default=RESULTS_PATH,
         help="Where to save the CSV of all evaluated configurations.",
     )
+    parser.add_argument(
+        "--n-features",
+        type=int,
+        default=0,
+        help="Number of top features to select. Set to 0 to use all features.",
+    )
     args = parser.parse_args()
 
     args.results_path.parent.mkdir(parents=True, exist_ok=True)
     args.results_path.unlink(missing_ok=True)
     header_written = False
 
+    # Create directory for best models
+    best_models_dir = args.results_path.parent / "best_models"
+    best_models_dir.mkdir(parents=True, exist_ok=True)
+
     X, y, label_encoder = load_dataset()
+    
+    # Apply feature selection if requested
+    if args.n_features > 0:
+        X = select_top_features(X, y, args.n_features)
+
     numeric_features, categorical_features = split_features(X)
     print(
         f"Loaded {len(X)} samples "
@@ -342,7 +454,15 @@ def main() -> None:
         )
         all_results.append(results_df)
 
-        holdout_metrics = evaluate_holdout(
+        # Copy best model to best_models folder
+        best_row = results_df.iloc[0]
+        best_filename = best_row["model_filename"]
+        src_model_path = args.results_path.parent / "all_models" / algo / best_filename
+        dst_model_path = best_models_dir / f"best_model_{algo}.joblib"
+        shutil.copy2(src_model_path, dst_model_path)
+        print(f"Saved best {algo} model to {dst_model_path}")
+
+        holdout_metrics, best_model = evaluate_holdout(
             algo,
             {k: v for k, v in best_params.items() if k.startswith("model__")},
             X_train,
