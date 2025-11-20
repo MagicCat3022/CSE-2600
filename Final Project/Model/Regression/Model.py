@@ -199,43 +199,19 @@ def append_partial_result(row: dict, filepath: Path, header_written: bool) -> bo
     )
     return True
 
-
-def append_partial_result(row: dict, filepath: Path, header_written: bool) -> bool:
-    ordered_row = {}
-    for col in ("mean_cv_rmse", "std_cv_rmse", "mean_cv_r2"):
-        if col in row:
-            ordered_row[col] = row[col]
-    for col in CLEAN_PARAM_NAMES:
-        if col in row:
-            ordered_row[col] = row[col]
-    pd.DataFrame([ordered_row]).to_csv(
-        filepath,
-        mode="a",
-        header=not header_written,
-        index=False,
-    )
-    return True
-
-
 def run_hyperparameter_search(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     numeric_features: list[str],
     categorical_features: list[str],
     results_path: Path,
-    results_path: Path,
 ) -> tuple[pd.DataFrame, dict]:
     results_path.unlink(missing_ok=True)
     header_written = False
 
-<<<<<<< HEAD:Final Project/Model/Model-XGBoost/Model.py
-    results_path.unlink(missing_ok=True)
-    header_written = False
-=======
     # Create directory for all models
     models_dir = results_path.parent / "all_models" / "xgboost"
     models_dir.mkdir(parents=True, exist_ok=True)
->>>>>>> 4a6b7b6180c0c0899dbb3969ea394fd0b27fd49c:Final Project/Model/Regression/Model.py
 
     param_grid = list(ParameterGrid(PARAM_GRID))
     total_configs = len(param_grid)
@@ -343,8 +319,7 @@ def main() -> None:
     )
 
     results_df, best_params = run_hyperparameter_search(
-        X_train, y_train, numeric_features, categorical_features, RESULTS_PATH
-        X_train, y_train, numeric_features, categorical_features, RESULTS_PATH
+        X_train, y_train, numeric_features, categorical_features, RESULTS_PATH,
     )
     
     # Save best model to best_models folder
