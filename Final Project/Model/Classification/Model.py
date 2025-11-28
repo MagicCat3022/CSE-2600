@@ -28,7 +28,7 @@ from xgboost import XGBClassifier
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "Data" / "Updated_Data.csv"
+DATA_PATH = BASE_DIR.parent / "Data" / "Updated_Data.csv"
 RESULTS_PATH = BASE_DIR / "model_search_results.csv"
 
 TARGET_NAME = "tier_rank_combined"
@@ -49,12 +49,12 @@ RANDOM_STATE = 42
 N_JOBS = -1  # for sklearn CV where applicable
 
 XGB_PARAM_GRID = {
-    "model__n_estimators": [500],
+    "model__n_estimators": [8000],
     "model__max_depth": [4],
     "model__learning_rate": [0.1],
     "model__subsample": [0.8],
-    "model__colsample_bytree": [0.5],
-    "model__reg_lambda": [1.5],
+    "model__colsample_bytree": [0.7],
+    "model__reg_lambda": [2],
     "model__tree_method": ["hist"],
     "model__min_child_weight": [1, 5],
     "model__gamma": [1, 0],

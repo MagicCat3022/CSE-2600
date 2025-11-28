@@ -1,3 +1,6 @@
 *.db
 *.csv
 *.joblib
+all_models/
+best_models/
+__pycache__/

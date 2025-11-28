@@ -15,7 +15,7 @@ from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "Data" / "Updated_Data.csv"
+DATA_PATH = BASE_DIR.parent / "Data" / "Updated_Data.csv"
 RESULTS_PATH = BASE_DIR / "xgb_model_results.csv"
 
 TARGET = "TOTAL_LP"
@@ -28,13 +28,13 @@ N_SPLITS = 5
 TOP_K = 10
 
 PARAM_GRID = {
-    "regressor__n_estimators": [10000, 13000, 15000],
-    "regressor__max_depth": [6],
-    "regressor__learning_rate": [0.1],
-    "regressor__subsample": [1.0],
-    "regressor__colsample_bytree": [0.7],
-    "regressor__gamma": [0],
-    "regressor__reg_lambda": [1.5],
+    "regressor__n_estimators": [18000, 20000],
+    "regressor__max_depth": [7, 8],
+    "regressor__learning_rate": [0.015],
+    "regressor__subsample": [1.0, 0.6],
+    "regressor__colsample_bytree": [0.7, 1],
+    "regressor__gamma": [0, 1],
+    "regressor__reg_lambda": [2, 3],
 }
 CLEAN_PARAM_NAMES = [key.replace("regressor__", "") for key in PARAM_GRID]
 
@@ -114,7 +114,7 @@ def select_top_features(
     
     # Lightweight RF for selection
     reg = RandomForestRegressor(
-        n_estimators=50,
+        n_estimators=1000,
         max_depth=10,
         n_jobs=-1,
         random_state=RANDOM_STATE
@@ -210,7 +210,7 @@ def run_hyperparameter_search(
     header_written = False
 
     # Create directory for all models
-    models_dir = results_path.parent / "all_models" / "xgboost"
+    models_dir = BASE_DIR / "all_models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
     param_grid = list(ParameterGrid(PARAM_GRID))
@@ -248,8 +248,6 @@ def run_hyperparameter_search(
         clean_params = {k.replace("regressor__", ""): v for k, v in params.items()}
         row.update(clean_params)
         results.append(row)
-
-        header_written = append_partial_result(row, results_path, header_written)
 
         header_written = append_partial_result(row, results_path, header_written)
 
@@ -323,12 +321,12 @@ def main() -> None:
     )
     
     # Save best model to best_models folder
-    best_models_dir = RESULTS_PATH.parent / "best_models"
+    best_models_dir = BASE_DIR / "best_models"
     best_models_dir.mkdir(parents=True, exist_ok=True)
     
     best_row = results_df.iloc[0]
     best_filename = best_row["model_filename"]
-    src_model_path = RESULTS_PATH.parent / "all_models" / best_filename
+    src_model_path = BASE_DIR / "all_models" / best_filename
     dst_model_path = best_models_dir / "best_model_xgboost.joblib"
     shutil.copy2(src_model_path, dst_model_path)
     print(f"Saved best model to {dst_model_path}")
