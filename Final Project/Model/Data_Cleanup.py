@@ -26,6 +26,8 @@ def cleanup_1():
         rank: int = row['rank_int'] - 1
         lp: int = row['leaguePoints']
         total_lp = lp + (rank * 100) + (tier * 400)
+        if total_lp > 2800:
+            total_lp = 2800
         index = cast(int, index)
         data.at[index, 'TOTAL_LP'] = total_lp
         
@@ -158,6 +160,26 @@ def cleanup_8():
     
     with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
         data.to_csv(file, index=False)
+        
+def cleanup_9():
+    '''
+    1. Remove all columns with normalized variance less than 0.03
+    2. Save cleaned data to Updated_Data.csv
+    '''
+    data_path = Data_dir / 'Updated_Data.csv'
+    data = pd.read_csv(data_path, low_memory=False)
+    
+    threshold = 0.03
+    for column in data.columns:
+        if data[column].dtype == int or data[column].dtype == float:
+            col = data[column]
+            variance = col.var() / (col.max() - col.min())
+            if variance < threshold:
+                print(f"Dropping column: {column} with variance {variance}")
+                data.drop(columns=[column], inplace=True)
+    
+    with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
+        data.to_csv(file, index=False)
 
 def cleanup_all():
     cleanup_1()
@@ -168,6 +190,7 @@ def cleanup_all():
     cleanup_6()
     cleanup_7()
     cleanup_8()
+    cleanup_9()
     
 if __name__ == "__main__":
     cleanup_all()

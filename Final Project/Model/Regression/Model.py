@@ -21,20 +21,20 @@ RESULTS_PATH = BASE_DIR / "xgb_model_results.csv"
 TARGET = "TOTAL_LP"
 EXCLUDED_FEATURES = {"tier", "rank", "tier_int", "rank_int", "leaguepoints", "lp", "total_lp"}
 
-RANDOM_STATE = 42
+RANDOM_STATE = 67
 TEST_SIZE = 0.2
 N_SPLITS = 5
 N_SPLITS = 5
 TOP_K = 10
 
 PARAM_GRID = {
-    "regressor__n_estimators": [10000, 20000],
-    "regressor__max_depth": [7, 8],
-    "regressor__learning_rate": [0.015],
+    "regressor__n_estimators": [5000, 2500],
+    "regressor__max_depth": [8, 10],
+    "regressor__learning_rate": [0.015, 0.1],
     "regressor__subsample": [1.0, 0.6],
     "regressor__colsample_bytree": [0.7, 1],
     "regressor__gamma": [0, 1],
-    "regressor__reg_lambda": [0, 3],
+    "regressor__reg_lambda": [0],
 }
 CLEAN_PARAM_NAMES = [key.replace("regressor__", "") for key in PARAM_GRID]
 
@@ -114,7 +114,7 @@ def select_top_features(
     
     # Lightweight RF for selection
     reg = RandomForestRegressor(
-        n_estimators=1000,
+        n_estimators=100,
         max_depth=10,
         n_jobs=-1,
         random_state=RANDOM_STATE
@@ -141,8 +141,10 @@ def select_top_features(
     feat_imp = feat_imp.sort_values(by="importance", ascending=False)
     
     top_features = feat_imp.head(n_features)["feature"].tolist()
+    top_importances = feat_imp.head(n_features)["importance"].tolist()
     
-    print(f"Top 5 features: {top_features[:5]}")
+    print(f"Top 10 features: {top_features[:10]}")
+    print(f"Top 10 importances: {top_importances[:10]}")
     print(f"Reduced feature space from {len(X.columns)} to {len(top_features)}.")
     
     return X[top_features]
