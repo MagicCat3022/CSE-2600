@@ -141,6 +141,23 @@ def cleanup_7():
     
     with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
         data.to_csv(file, index=False)
+        
+def cleanup_8():
+    '''
+    1. remove outliers
+    2. Save cleaned data to Updated_Data.csv
+    '''
+    
+    data_path = Data_dir / 'Updated_Data.csv'
+    data = pd.read_csv(data_path, low_memory=False)
+    
+    upper_limit = 3150
+    lower_limit = 750
+    
+    data = data[(data['TOTAL_LP'] <= upper_limit) & (data['TOTAL_LP'] >= lower_limit)]
+    
+    with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
+        data.to_csv(file, index=False)
 
 def cleanup_all():
     cleanup_1()
@@ -150,6 +167,7 @@ def cleanup_all():
     cleanup_5()
     cleanup_6()
     cleanup_7()
+    cleanup_8()
     
 if __name__ == "__main__":
     cleanup_all()
