@@ -20,14 +20,14 @@ RESULTS_PATH = BASE_DIR / "catboost_model_results.csv"
 TARGET = "TOTAL_LP"
 EXCLUDED_FEATURES = {"tier", "rank", "tier_int", "rank_int", "leaguepoints", "lp", "total_lp"}
 
-RANDOM_STATE = 42
+RANDOM_STATE = 67
 TEST_SIZE = 0.2
 N_SPLITS = 5
 TOP_K = 10
 
 # CatBoost hyperparameter grid (starting small, can be expanded)
 PARAM_GRID = {
-    "regressor__iterations": [8000, 12000],
+    "regressor__iterations": [2000],
     "regressor__depth": [10, 12],
     "regressor__learning_rate": [0.03, 0.01],
     "regressor__l2_leaf_reg": [0],

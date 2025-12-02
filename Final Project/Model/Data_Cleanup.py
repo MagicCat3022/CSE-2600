@@ -135,7 +135,7 @@ def cleanup_7():
     
     remove = ['challenge_blastConeOppositeOpponentCount', 'challenge_doubleAces', 'challenge_elderDragonKillsWithOpposingSoul', 
               'challenge_elderDragonMultikills', 'challenge_epicMonsterSteals', 'challenge_initialBuffCount', 
-              'challenge_initialCrabCount', 'challenge_perfectGame']
+              'challenge_initialCrabCount', 'challenge_perfectGame', 'championName']
     
     for feature in remove:
         if feature in data.columns:
@@ -180,6 +180,39 @@ def cleanup_9():
     
     with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
         data.to_csv(file, index=False)
+        
+def cleanup_10():
+    '''
+    1. add /min data
+    '''
+    
+    data_path = Data_dir / 'Updated_Data.csv'
+    data = pd.read_csv(data_path, low_memory=False)
+    
+    minutes = data['gameDuration_s'] / 60.0
+    alpha = 2
+    minutes = minutes - alpha
+    
+    kills_per_min = data['kills'] / minutes
+    deaths_per_min = data['deaths'] / minutes
+    assists_per_min = data['assists'] / minutes
+    gold_per_min = data['goldEarned'] / minutes
+    cs_per_min = data['totalMinionsKilled'] / minutes
+    damage_per_min = data['totalDamageDealtToChampions'] / minutes
+    cs_first_10_per_min = data['challenge_laneMinionsFirst10Minutes'] / (10)
+    
+    data['kills_per_min'] = kills_per_min
+    data['deaths_per_min'] = deaths_per_min
+    data['assists_per_min'] = assists_per_min
+    data['gold_per_min'] = gold_per_min
+    data['cs_per_min'] = cs_per_min
+    data['damage_per_min'] = damage_per_min
+    data['cs_first_10_per_min'] = cs_first_10_per_min
+    
+    with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
+        data.to_csv(file, index=False)
+    
+    
 
 def cleanup_all():
     cleanup_1()
@@ -191,6 +224,7 @@ def cleanup_all():
     cleanup_7()
     cleanup_8()
     cleanup_9()
+    cleanup_10()
     
 if __name__ == "__main__":
     cleanup_all()
