@@ -26,8 +26,6 @@ def cleanup_1():
         rank: int = row['rank_int'] - 1
         lp: int = row['leaguePoints']
         total_lp = lp + (rank * 100) + (tier * 400)
-        if total_lp > 2800:
-            total_lp = 2800
         index = cast(int, index)
         data.at[index, 'TOTAL_LP'] = total_lp
         
@@ -135,7 +133,7 @@ def cleanup_7():
     
     remove = ['challenge_blastConeOppositeOpponentCount', 'challenge_doubleAces', 'challenge_elderDragonKillsWithOpposingSoul', 
               'challenge_elderDragonMultikills', 'challenge_epicMonsterSteals', 'challenge_initialBuffCount', 
-              'challenge_initialCrabCount', 'challenge_perfectGame', 'championName']
+              'challenge_initialCrabCount', 'challenge_perfectGame', 'championName', 'role']
     
     for feature in remove:
         if feature in data.columns:
@@ -153,8 +151,8 @@ def cleanup_8():
     data_path = Data_dir / 'Updated_Data.csv'
     data = pd.read_csv(data_path, low_memory=False)
     
-    upper_limit = 3150
-    lower_limit = 750
+    upper_limit = 3000
+    lower_limit = 1000
     
     data = data[(data['TOTAL_LP'] <= upper_limit) & (data['TOTAL_LP'] >= lower_limit)]
     
@@ -211,6 +209,58 @@ def cleanup_10():
     
     with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
         data.to_csv(file, index=False)
+        
+def cleanup_11():
+    '''
+    1. Group by tier
+    2. Remove bottom 10% in each group based on cs_per_min, kills_per_min, deaths_per_min
+    3. Save cleaned data to Updated_Data.csv
+    '''
+    
+    data_path = Data_dir / 'Updated_Data.csv'
+    data = pd.read_csv(data_path, low_memory=False)
+    
+    data = data.sort_values(by=['TOTAL_LP', 'cs_per_min', 'kills_per_min', 'deaths_per_min'], ascending=[True, True, True, False])
+    data['LP_Group'] = data['tier_int']
+    cleaned_data = pd.DataFrame()
+    
+    # For each LP_Group compute a combined performance score (higher is better)
+    # based on cs_per_min (+), kills_per_min (+), deaths_per_min (-).
+    # Remove the bottom 10% of rows in each LP_Group by that combined score.
+    kept_groups = []
+    for grp_val, grp in data.groupby('LP_Group'):
+        grp = grp.copy()
+        # percentile ranks (0..1) within the group
+        cs_pct = grp['cs_per_min'].rank(pct=True)
+        kills_pct = grp['kills_per_min'].rank(pct=True)
+        deaths_pct = grp['deaths_per_min'].rank(pct=True)
+        # lower deaths is better, so invert its percentile
+        combined_score = cs_pct + kills_pct + (1.0 - deaths_pct)
+        grp['_combined_score'] = combined_score
+
+        # compute 10% cutoff and keep rows strictly above it (drop bottom 10%)
+        cutoff = grp['_combined_score'].quantile(0.10)
+        kept = grp[grp['_combined_score'] > cutoff]
+
+        # if group is very small and nothing remains, keep the original group to avoid emptying
+        if kept.empty:
+            kept = grp
+
+        kept_groups.append(kept)
+
+    if kept_groups:
+        cleaned_data = pd.concat(kept_groups, ignore_index=True)
+        
+        if '_combined_score' in cleaned_data.columns:
+            cleaned_data = cleaned_data.drop(columns=['_combined_score'])
+    else:
+        cleaned_data = pd.DataFrame(columns=data.columns)
+    
+    cleaned_data = cleaned_data.drop(columns=['LP_Group'])
+    data = cleaned_data.reset_index(drop=True)
+    
+    with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
+        data.to_csv(file, index=False)
     
     
 
@@ -225,6 +275,7 @@ def cleanup_all():
     cleanup_8()
     cleanup_9()
     cleanup_10()
+    cleanup_11()
     
 if __name__ == "__main__":
     cleanup_all()

@@ -25,13 +25,12 @@ TEST_SIZE = 0.2
 N_SPLITS = 5
 TOP_K = 10
 
-# CatBoost hyperparameter grid (starting small, can be expanded)
 PARAM_GRID = {
-    "regressor__iterations": [2000],
-    "regressor__depth": [10, 12],
-    "regressor__learning_rate": [0.03, 0.01],
+    "regressor__iterations": [500],
+    "regressor__depth": [8, 10],
+    "regressor__learning_rate": [0.1],
     "regressor__l2_leaf_reg": [0],
-    "regressor__subsample": [0.7, 1.0],
+    "regressor__subsample": [0.7],
 }
 CLEAN_PARAM_NAMES = [key.replace("regressor__", "") for key in PARAM_GRID]
 
@@ -98,9 +97,9 @@ def select_top_features(
     
     # Lightweight CatBoost for feature selection
     selector_model = CatBoostRegressor(
-        iterations=500,
+        iterations=250,
         depth=6,
-        learning_rate=0.1,
+        learning_rate=0.15,
         loss_function="RMSE",
         cat_features=cat_feature_indices,
         random_seed=RANDOM_STATE,
@@ -299,6 +298,11 @@ def main() -> None:
         test_size=TEST_SIZE,
         random_state=RANDOM_STATE,
     )
+    
+    # output test dataset
+    test_data = X_test.copy()
+    test_data[TARGET] = y_test
+    test_data.to_csv(BASE_DIR / "test_data.csv", index=False)
 
     results_df, best_params = run_hyperparameter_search(
         X_train, y_train, numeric_features, categorical_features, RESULTS_PATH,

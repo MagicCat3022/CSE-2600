@@ -28,7 +28,7 @@ N_SPLITS = 5
 TOP_K = 10
 
 PARAM_GRID = {
-    "regressor__n_estimators": [5000, 2500],
+    "regressor__n_estimators": [1000, 2500],
     "regressor__max_depth": [8, 10],
     "regressor__learning_rate": [0.015, 0.1],
     "regressor__subsample": [1.0, 0.6],
