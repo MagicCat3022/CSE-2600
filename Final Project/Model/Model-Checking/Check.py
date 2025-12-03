@@ -8,20 +8,16 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from scipy import stats
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
-# 1. Point to the saved model file
-# Adjust the path if your model is in a different folder
-MODEL_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\CatBoost\all_models\catboost_reg_2.joblib")
+MODEL_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\RandomForest\all_models\rf_reg_1.joblib")
+TEST_DATA_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\RandomForest\test_data.csv")
 
-# 2. Load the pipeline
 pipeline: Pipeline = joblib.load(MODEL_PATH)
-
-# 3. Load test data (adjust path to your test data)
-TEST_DATA_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\CatBoost\test_data.csv")
 test_df = pd.read_csv(TEST_DATA_PATH)
 
 # Separate features and target
@@ -80,12 +76,13 @@ for idx, feature in enumerate(feature_names):
         feature_values = X_test_transformed.toarray()[:, idx]
     else:
         feature_values = X_test_transformed[:, idx]
-    
-    # Calculate correlation with target
-    correlation = np.corrcoef(feature_values, y_test)[0, 1]
-    
-    # Calculate p-value using linear regression t-test
-    slope, intercept, r_value, p_value, std_err = stats.linregress(feature_values, y_test)
+
+    if np.all(feature_values == feature_values[0]):
+        correlation = np.nan
+        slope = intercept = r_value = p_value = std_err = np.nan
+    else:
+        correlation = np.corrcoef(feature_values, y_test)[0, 1]
+        slope, intercept, r_value, p_value, std_err = stats.linregress(feature_values, y_test)
     
     # Calculate feature statistics
     feature_mean = np.mean(feature_values)
@@ -132,18 +129,24 @@ if isinstance(model, (XGBClassifier, XGBRegressor)):
 elif isinstance(model, (CatBoostClassifier, CatBoostRegressor)):
     # CatBoost feature importance
     importance_values = model.get_feature_importance()
-    
-    # Map importance values to feature names
     mapped_importance = {}
     for idx, score in enumerate(importance_values):
         if idx < len(feature_names):
             name = feature_names[idx]
-            
-            # Clean up ColumnTransformer prefixes
             if "__" in name:
                 name = name.split("__", 1)[1]
-                
             mapped_importance[name] = score
+
+elif isinstance(model, (RandomForestClassifier, RandomForestRegressor)):
+    importance_values = getattr(model, "feature_importances_", None)
+    if importance_values is None:
+        raise ValueError("RandomForest model lacks feature_importances_.")
+    mapped_importance = {}
+    for idx, score in enumerate(importance_values[: len(feature_names)]):
+        name = feature_names[idx]
+        if "__" in name:
+            name = name.split("__", 1)[1]
+        mapped_importance[name] = score
 else:
     raise ValueError(f"Unsupported model type: {type(model)}")
 

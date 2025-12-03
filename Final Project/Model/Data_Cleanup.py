@@ -250,9 +250,6 @@ def cleanup_11():
 
     if kept_groups:
         cleaned_data = pd.concat(kept_groups, ignore_index=True)
-        
-        if '_combined_score' in cleaned_data.columns:
-            cleaned_data = cleaned_data.drop(columns=['_combined_score'])
     else:
         cleaned_data = pd.DataFrame(columns=data.columns)
     
