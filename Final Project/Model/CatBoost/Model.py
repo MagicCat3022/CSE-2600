@@ -26,11 +26,11 @@ N_SPLITS = 5
 TOP_K = 10
 
 PARAM_GRID = {
-    "regressor__iterations": [500],
-    "regressor__depth": [8, 10],
-    "regressor__learning_rate": [0.1],
+    "regressor__iterations": [2000],
+    "regressor__depth": [10],
+    "regressor__learning_rate": [0.03],
     "regressor__l2_leaf_reg": [0],
-    "regressor__subsample": [0.7],
+    "regressor__subsample": [1.0],
 }
 CLEAN_PARAM_NAMES = [key.replace("regressor__", "") for key in PARAM_GRID]
 

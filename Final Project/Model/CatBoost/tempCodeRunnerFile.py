@@ -1,0 +1,5 @@
+"regressor__iterations": [2000],
+    "regressor__depth": [10],
+    "regressor__learning_rate": [0.03],
+    "regressor__l2_leaf_reg": [0],
+    "regressor__subsample": [1.0],

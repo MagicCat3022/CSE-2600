@@ -14,8 +14,8 @@ BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
-MODEL_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\RandomForest\all_models\rf_reg_1.joblib")
-TEST_DATA_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\RandomForest\test_data.csv")
+MODEL_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\CatBoost\all_models\catboost_reg_1.joblib")
+TEST_DATA_PATH = Path(r"C:\Users\AHMET\Documents\GitHub\CSE-2600\Final Project\Model\CatBoost\test_data.csv")
 
 pipeline: Pipeline = joblib.load(MODEL_PATH)
 test_df = pd.read_csv(TEST_DATA_PATH)

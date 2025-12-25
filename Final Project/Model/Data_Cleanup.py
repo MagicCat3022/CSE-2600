@@ -151,8 +151,8 @@ def cleanup_8():
     data_path = Data_dir / 'Updated_Data.csv'
     data = pd.read_csv(data_path, low_memory=False)
     
-    upper_limit = 3000
-    lower_limit = 1000
+    upper_limit = 2800
+    lower_limit = 750
     
     data = data[(data['TOTAL_LP'] <= upper_limit) & (data['TOTAL_LP'] >= lower_limit)]
     
@@ -253,7 +253,7 @@ def cleanup_11():
     else:
         cleaned_data = pd.DataFrame(columns=data.columns)
     
-    cleaned_data = cleaned_data.drop(columns=['LP_Group'])
+    cleaned_data = cleaned_data.drop(columns=['LP_Group', '_combined_score'])
     data = cleaned_data.reset_index(drop=True)
     
     with open(Data_dir / 'Updated_Data.csv', mode='w', encoding='utf-8') as file:
